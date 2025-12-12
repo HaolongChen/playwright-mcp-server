@@ -6,7 +6,7 @@ A Docker-based Model Context Protocol (MCP) server that provides Playwright brow
 
 - 🎭 **Multi-browser Support**: Chromium, Firefox, and WebKit
 - 🐳 **Docker-based**: Fully containerized with proper browser dependencies
-- 🚀 **Cloud-ready**: Deploy to Fly.io, Railway, DigitalOcean, and more
+- 🚀 **Cloud-ready**: Deploy to Fly.io, Railway, DigitalOcean, Render, and more
 - 📊 **Health Monitoring**: Built-in health checks and logging
 - 🔧 **MCP Protocol**: Standard Model Context Protocol implementation
 - 🛡️ **Security**: Non-root container execution with security hardening
@@ -196,6 +196,265 @@ NODE_ENV=production
 ```
 
 3. **Deploy automatically** - Railway will use your Dockerfile
+
+### Render
+
+Render provides a seamless deployment experience with automatic SSL, custom domains, and managed infrastructure. This guide covers deploying the Playwright MCP Server to Render using their Docker support.
+
+#### Prerequisites
+
+- A [Render account](https://render.com) (free tier available)
+- Your GitHub repository connected to Render
+- This project's Dockerfile in your repository
+
+#### Step-by-Step Deployment
+
+**1. Create a New Web Service**
+
+- Log in to your [Render Dashboard](https://dashboard.render.com/)
+- Click **"New +"** button in the top right
+- Select **"Web Service"**
+
+**2. Connect Your Repository**
+
+- Choose **"Build and deploy from a Git repository"**
+- Click **"Connect"** next to your GitHub account (authorize if needed)
+- Select the `playwright-mcp-server` repository
+- Click **"Connect"**
+
+**3. Configure Your Web Service**
+
+Fill in the following settings:
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| **Name** | `playwright-mcp-server` | Your service name (will be part of URL) |
+| **Region** | Choose closest to your users | e.g., Oregon (US West), Frankfurt (EU) |
+| **Branch** | `main` | Git branch to deploy from |
+| **Runtime** | `Docker` | Render will detect your Dockerfile |
+| **Instance Type** | `Standard` or higher | Minimum recommended for Playwright |
+
+**4. Environment Variables**
+
+Under the **"Environment"** section, add the following variables:
+
+| Key | Value | Required | Description |
+|-----|-------|----------|-------------|
+| `PORT` | `3000` | Yes | Application port (Render maps to public port automatically) |
+| `NODE_ENV` | `production` | Yes | Node environment setting |
+
+Click **"Add Environment Variable"** for each entry.
+
+**5. Advanced Settings (Recommended)**
+
+Expand **"Advanced"** section and configure:
+
+**Docker Command Override** (optional):
+```bash
+npm start
+```
+
+**Health Check Path**:
+```
+/health
+```
+
+**Auto-Deploy**: ✅ Enabled (automatically deploy on git push)
+
+**6. Resource Configuration**
+
+Since Playwright requires significant resources, choose appropriate instance type:
+
+| Instance Type | RAM | CPU | Use Case |
+|---------------|-----|-----|----------|
+| **Standard** | 2 GB | 1.0 | Light usage, single browser |
+| **Standard Plus** | 4 GB | 2.0 | Multiple browsers, moderate load |
+| **Pro** | 8 GB | 4.0 | High traffic, concurrent operations |
+
+💡 **Recommendation**: Start with **Standard** ($7/month) and scale up if needed.
+
+**7. Deploy Your Service**
+
+- Review all settings
+- Click **"Create Web Service"**
+- Render will:
+  1. Clone your repository
+  2. Build the Docker image
+  3. Deploy the container
+  4. Assign a public URL
+
+Your service will be available at: `https://playwright-mcp-server-XXXX.onrender.com`
+
+#### Post-Deployment Configuration
+
+**Custom Domain (Optional)**
+
+1. Go to your service's **"Settings"** tab
+2. Scroll to **"Custom Domain"** section
+3. Click **"Add Custom Domain"**
+4. Enter your domain (e.g., `playwright.yourdomain.com`)
+5. Update your DNS records as instructed by Render
+
+**Environment Groups (Optional)**
+
+For managing multiple services with shared environment variables:
+
+1. Go to **"Environment"** tab in your dashboard
+2. Create an **Environment Group**
+3. Add common variables (e.g., API keys)
+4. Link the group to your services
+
+**Monitoring and Logs**
+
+- **Logs**: Click **"Logs"** tab to view real-time application logs
+- **Metrics**: Click **"Metrics"** tab to monitor:
+  - CPU usage
+  - Memory consumption
+  - HTTP requests
+  - Response times
+- **Events**: View deployment history and events
+
+#### Testing Your Deployment
+
+Once deployed, test your service:
+
+**1. Health Check**
+```bash
+curl https://your-service-name.onrender.com/health
+```
+
+Expected response:
+```json
+{
+  "status": "healthy",
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "browsers": {
+    "chromium": true,
+    "firefox": true,
+    "webkit": true
+  }
+}
+```
+
+**2. List Available Tools**
+```bash
+curl https://your-service-name.onrender.com/tools
+```
+
+**3. Test Navigation Tool**
+```bash
+curl -X POST https://your-service-name.onrender.com/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method": "navigate",
+    "params": {
+      "url": "https://example.com",
+      "browser": "chromium"
+    }
+  }'
+```
+
+#### Render-Specific Features
+
+**Automatic HTTPS**
+- All Render services get free SSL certificates
+- HTTPS is enabled by default
+- Certificates auto-renew
+
+**Zero-Downtime Deploys**
+- Render performs rolling deploys
+- New version starts before old one stops
+- No service interruption
+
+**Persistent Disks (if needed)**
+- Render services are ephemeral by default
+- Add a persistent disk for permanent storage
+- Not required for this Playwright server
+
+**Pull Request Previews**
+- Enable preview environments for PRs
+- Test changes before merging
+- Automatically created for each PR
+
+#### Troubleshooting Render Deployment
+
+**Build Failures**
+
+If your build fails:
+1. Check the build logs in the **"Logs"** tab
+2. Ensure your Dockerfile is in the repository root
+3. Verify all npm dependencies are listed in `package.json`
+
+**Memory Issues**
+
+If you see OOM (Out of Memory) errors:
+1. Upgrade to a higher instance type
+2. Consider using only Chromium browser (comment out others)
+3. Monitor memory usage in the **"Metrics"** tab
+
+**Service Won't Start**
+
+If the service builds but won't start:
+1. Verify the `PORT` environment variable is set to `3000`
+2. Check that the application listens on `0.0.0.0`, not `localhost`
+3. Review startup logs for error messages
+
+**Health Check Failures**
+
+If health checks fail:
+1. Verify `/health` endpoint is responding
+2. Check the health check path in settings
+3. Ensure browsers initialize successfully (check logs)
+
+**Slow Cold Starts**
+
+Render may suspend free/starter services after inactivity:
+- Upgrade to paid plan to keep service always-on
+- First request after suspension may take 30-60 seconds
+- Subsequent requests will be fast
+
+#### Cost Optimization
+
+**Free Tier Limitations**
+- Free services spin down after 15 minutes of inactivity
+- 750 hours/month of usage
+- Shared resources
+- ⚠️ Not recommended for production Playwright workloads
+
+**Recommended Setup**
+- **Development**: Standard instance ($7/month)
+- **Production**: Standard Plus ($20/month) or higher
+- Enable auto-scaling if needed
+
+**Cost-Saving Tips**
+1. Use single browser (Chromium) to reduce memory
+2. Implement request queueing to handle concurrent load
+3. Set up proper caching strategies
+4. Monitor usage to right-size your instance
+
+#### Updating Your Deployment
+
+**Automatic Updates**
+- Push to your connected branch
+- Render automatically builds and deploys
+- Watch deployment progress in dashboard
+
+**Manual Deploy**
+- Go to your service dashboard
+- Click **"Manual Deploy"** button
+- Select **"Clear build cache & deploy"** if needed
+
+**Rollback**
+- Click on **"Events"** tab
+- Find previous successful deployment
+- Click **"Rollback to this version"**
+
+#### Additional Resources
+
+- [Render Documentation](https://render.com/docs)
+- [Render Docker Deployment Guide](https://render.com/docs/docker)
+- [Render Environment Variables](https://render.com/docs/environment-variables)
+- [Render Health Checks](https://render.com/docs/health-checks)
 
 ### DigitalOcean App Platform
 

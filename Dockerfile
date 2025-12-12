@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install production dependencies only
-RUN npm ci --only=production && npm cache clean --force
+RUN npm i --omit=dev && npm cache clean --force
 
 # Install only the browsers we need (chromium is most commonly used, add others if needed)
 RUN npx playwright install --with-deps chromium firefox webkit

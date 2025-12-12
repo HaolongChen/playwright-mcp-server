@@ -1,0 +1,176 @@
+# =============================================================================
+# Simplified Single-Stage Dockerfile for Playwright MCP Server
+# Optimized for Render.com deployment with better debugging
+# =============================================================================
+
+# Use Node.js 22 on Debian Bookworm (slim version for smaller size)
+FROM node:22-bookworm-slim
+
+# =============================================================================
+# SYSTEM DEPENDENCIES INSTALLATION
+# Install all required system libraries for Chromium and Playwright
+# =============================================================================
+
+# Set environment to avoid interactive prompts during installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies required for Chromium and Playwright
+# - fonts-liberation, fonts-noto-color-emoji: Font rendering
+# - libnss3, libnspr4: Network Security Services
+# - libatk-bridge2.0-0, libatk1.0-0: Accessibility toolkit
+# - libx11-6, libxcomposite1, libxdamage1, etc.: X11 display libraries
+# - libgbm1: Generic Buffer Management (required for headless Chrome)
+# - libasound2: Sound library
+# - curl: For health checks
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Font packages
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    # NSS and security libraries
+    libnss3 \
+    libnspr4 \
+    # Accessibility libraries
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    # X11 libraries
+    libx11-6 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxrandr2 \
+    # Graphics libraries
+    libgbm1 \
+    libdrm2 \
+    libxcb1 \
+    libxkbcommon0 \
+    # Audio
+    libasound2 \
+    # Additional dependencies
+    libatspi2.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libxshmfence1 \
+    # Utility tools
+    curl \
+    ca-certificates \
+    # Cleanup to reduce image size
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* /var/tmp/*
+
+# =============================================================================
+# APPLICATION SETUP
+# =============================================================================
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files first for better layer caching
+# This allows Docker to cache npm install if package.json hasn't changed
+COPY package*.json ./
+
+# Install Node.js dependencies
+# Using npm ci for clean, reproducible installs (faster than npm install)
+RUN echo "📦 Installing Node.js dependencies..." \
+    && npm ci --only=production --loglevel=info \
+    && echo "✅ Node.js dependencies installed successfully"
+
+# Install Playwright browsers and system dependencies
+# Focus on Chromium only since that's what we're using
+# --with-deps ensures all browser dependencies are installed
+RUN echo "🎭 Installing Playwright browsers..." \
+    && npx playwright install chromium --with-deps \
+    && echo "✅ Playwright Chromium installed successfully"
+
+# Copy application code
+# Do this after npm install to leverage Docker layer caching
+COPY . .
+
+# =============================================================================
+# SECURITY CONFIGURATION
+# Create non-root user for running the application
+# =============================================================================
+
+# Create a non-root user 'playwright' for security best practices
+# Add user to audio and video groups for browser functionality
+RUN groupadd -r playwright \
+    && useradd -r -g playwright -G audio,video playwright \
+    && mkdir -p /home/playwright/.cache /home/playwright/.local \
+    && chown -R playwright:playwright /app /home/playwright
+
+# =============================================================================
+# ENVIRONMENT CONFIGURATION
+# =============================================================================
+
+# Set HOME directory for the non-root user (required by Render)
+ENV HOME=/home/playwright
+
+# Set Playwright to use Chromium in headless mode
+ENV PLAYWRIGHT_BROWSERS_PATH=/home/playwright/.cache/ms-playwright
+
+# Enable better error logging
+ENV DEBUG=pw:api
+ENV NODE_ENV=production
+
+# Add additional Chrome/Chromium flags for stability in containerized environments
+# These flags are critical for running Chrome in Docker without GPU
+ENV CHROME_ARGS="--headless --disable-gpu --no-sandbox --disable-dev-shm-usage --disable-software-rasterizer --disable-extensions"
+
+# Switch to non-root user
+USER playwright
+
+# =============================================================================
+# PORT CONFIGURATION
+# Render dynamically assigns PORT via environment variable
+# =============================================================================
+
+# Expose the port (Render will override this with its own PORT env var)
+# Default to 3000 if PORT is not set
+EXPOSE 3000
+
+# =============================================================================
+# HEALTH CHECK CONFIGURATION
+# Helps Render detect if the container is healthy
+# =============================================================================
+
+# Health check endpoint to verify service is running
+# Checks every 30 seconds, timeout after 10 seconds
+# Allows 60 seconds startup time, retry 3 times before marking unhealthy
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-3000}/health || exit 1
+
+# =============================================================================
+# STARTUP COMMAND
+# =============================================================================
+
+# Log startup information for debugging
+RUN echo "🚀 Container configuration complete" \
+    && echo "   - Node version: $(node --version)" \
+    && echo "   - npm version: $(npm --version)" \
+    && echo "   - Working directory: /app" \
+    && echo "   - User: playwright (non-root)"
+
+# Start the application with detailed logging
+# The server.js already handles PORT from environment variable
+CMD echo "🎬 Starting Playwright MCP Server..." \
+    && echo "   - Port: ${PORT:-3000}" \
+    && echo "   - Environment: ${NODE_ENV}" \
+    && echo "   - Browser: Chromium (headless)" \
+    && node server.js
+
+# =============================================================================
+# DEBUGGING TIPS:
+# 
+# 1. Build locally: docker build -f Dockerfile.simple -t playwright-mcp:simple .
+# 2. Run locally: docker run -p 3000:3000 playwright-mcp:simple
+# 3. Check health: curl http://localhost:3000/health
+# 4. View logs: docker logs <container-id>
+# 5. Interactive shell: docker run -it playwright-mcp:simple /bin/bash
+# 
+# Common Issues:
+# - If browser fails to launch: Check that --no-sandbox flag is enabled
+# - If fonts missing: Verify fonts-liberation and fonts-noto-color-emoji are installed
+# - If X11 errors: Ensure all libx* packages are present
+# - If memory issues: Increase container memory or add --disable-dev-shm-usage
+# =============================================================================

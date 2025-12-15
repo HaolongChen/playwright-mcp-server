@@ -104,6 +104,11 @@ app.use(helmet({
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 
+// FIX 3: Explicit OPTIONS handler for CORS preflight
+app.options('*', cors(corsOptions), (req, res) => {
+  res.status(204).end();
+});
+
 // Browser pool management
 const browserPool = {
   chromium: null,
@@ -441,11 +446,13 @@ app.post('/mcp/initialize', async (req, res) => {
     // Validate JSON-RPC request
     const validation = validateJsonRpcRequest(req.body);
     if (!validation.valid) {
-      return res.status(400).json(createJsonRpcResponse(id, null, validation.error));
+      // FIX 1: Always return HTTP 200 for JSON-RPC 2.0 errors
+      return res.status(200).json(createJsonRpcResponse(id, null, validation.error));
     }
     
     if (method !== 'initialize') {
-      return res.status(400).json(createJsonRpcResponse(id, null, {
+      // FIX 1: Always return HTTP 200 for JSON-RPC 2.0 errors
+      return res.status(200).json(createJsonRpcResponse(id, null, {
         code: ErrorCodes.METHOD_NOT_FOUND,
         message: `Method not found: ${method}`
       }));
@@ -466,7 +473,8 @@ app.post('/mcp/initialize', async (req, res) => {
     
   } catch (error) {
     logger.error('Initialization error:', error);
-    res.status(500).json(createJsonRpcResponse(req.body?.id, null, {
+    // FIX 1: Always return HTTP 200 for JSON-RPC 2.0 errors
+    res.status(200).json(createJsonRpcResponse(req.body?.id, null, {
       code: ErrorCodes.INTERNAL_ERROR,
       message: 'Failed to initialize MCP server',
       data: { details: error.message }
@@ -497,14 +505,16 @@ app.post('/mcp', async (req, res) => {
     if (jsonrpc) {
       const validation = validateJsonRpcRequest(req.body);
       if (!validation.valid) {
-        return res.status(400).json(createJsonRpcResponse(id, null, validation.error));
+        // FIX 1: Always return HTTP 200 for JSON-RPC 2.0 errors
+        return res.status(200).json(createJsonRpcResponse(id, null, validation.error));
       }
     }
     
     logger.info(`MCP request: ${method}`, { params });
     
     if (!mcpTools[method]) {
-      return res.status(400).json(createJsonRpcResponse(id, null, {
+      // FIX 1: Always return HTTP 200 for JSON-RPC 2.0 errors
+      return res.status(200).json(createJsonRpcResponse(id, null, {
         code: ErrorCodes.METHOD_NOT_FOUND,
         message: `Unknown method: ${method}`,
         data: {
@@ -516,18 +526,18 @@ app.post('/mcp', async (req, res) => {
     try {
       const result = await mcpTools[method](params || {});
       
-      // Return JSON-RPC response if id is present, otherwise legacy format
-      if (jsonrpc === '2.0' && id !== undefined) {
+      // FIX 2: Check only jsonrpc === '2.0' for response format detection
+      if (jsonrpc === '2.0') {
         res.json(createJsonRpcResponse(id, result));
       } else {
         // Legacy format for backward compatibility
         res.json(result);
       }
     } catch (toolError) {
-      // Handle tool-specific errors
+      // FIX 1: Handle tool-specific errors with HTTP 200
       if (toolError.code) {
         // Already formatted error
-        res.status(400).json(createJsonRpcResponse(id, null, toolError));
+        res.status(200).json(createJsonRpcResponse(id, null, toolError));
       } else {
         // Generic error
         throw toolError;
@@ -536,7 +546,8 @@ app.post('/mcp', async (req, res) => {
     
   } catch (error) {
     logger.error(`MCP error for ${req.body?.method}:`, error);
-    res.status(500).json(createJsonRpcResponse(req.body?.id, null, {
+    // FIX 1: Always return HTTP 200 for JSON-RPC 2.0 errors
+    res.status(200).json(createJsonRpcResponse(req.body?.id, null, {
       code: ErrorCodes.INTERNAL_ERROR,
       message: error.message || 'Internal server error',
       data: { method: req.body?.method }
@@ -587,7 +598,8 @@ app.use((err, req, res, next) => {
     return next(err);
   }
   
-  res.status(500).json(createJsonRpcResponse(req.body?.id, null, {
+  // FIX 1: Always return HTTP 200 for JSON-RPC 2.0 errors
+  res.status(200).json(createJsonRpcResponse(req.body?.id, null, {
     code: ErrorCodes.INTERNAL_ERROR,
     message: 'Unhandled server error',
     data: { details: err.message }
